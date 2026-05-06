@@ -1,0 +1,5 @@
+[~, pos1A] = min(abs(result.n1.wvl_400_800(:,1) - 500));
+[~, pos2A] = min(abs(result.n1.wvl_400_800(:,1) - 780));
+
+APARChla = result.n1.irr_PAR_400_800(pos1A:pos2A,1).*result.n1.endmembers_Chla_BB_lsqlin(:,1);
+APARChlb = result.n1.irr_PAR_400_800(pos1A:pos2A,1).*result.n1.endmembers_Chlb_BB_lsqlin(:,1);
