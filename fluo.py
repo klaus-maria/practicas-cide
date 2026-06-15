@@ -19,14 +19,18 @@ R -> Reflectance
 
 
 
-# read data
-mat = scipy.io.loadmat('data/Fluowat_2055_n1_result.mat', struct_as_record=False, squeeze_me=True)
-n1 = mat['result'].n1
-
-print(list(vars(mat['result']).keys()))
-print(list(vars(n1).keys()))
-print(list(vars(n1.raw_data).keys()))
-
+# read file and determine nitrogen level
+def read_file(filename='data/Fluowat_2055_n1_result.mat'):
+    mat = scipy.io.loadmat(filename, struct_as_record=False, squeeze_me=True)
+    print(list(vars(mat['result']).keys()))
+    if 'n1' in filename:
+        return mat['result'].n1, 'n1'
+    elif 'n3' in filename:
+        return mat['result'].n3, 'n3'
+    elif 'n5' in filename:
+        return mat['result'].n5, 'n5'
+    else:
+        print('Could not find nitrogen level from filename!')
 
 # find closest indices (MATLAB min(abs(...))), use same wavelengths for all variables
 def get_wvl_ref(arr):
@@ -68,26 +72,30 @@ class Result:
         self.corrected = corrected
         self.wvl = wvl
 
+# read data
+n, nitro_label = read_file('data/Fluowat_2055_n3_result.mat')
+print(list(vars(n).keys()))
+print(list(vars(n.raw_data).keys()))
 
 # get variables
-wvl = n1.raw_data.wvl[0].T
-wvl_400_800 = n1.wvl_400_800
-wvl_500_780 = n1.wvl_500_780
-wvl_650_850 = n1.wvl_650_850
-irr = n1.irr_PAR_400_800
-chla = n1.endmembers_Chla_BB_lsqlin
-chlb = n1.endmembers_Chlb_BB_lsqlin
-carb = n1.endmembers_Carb_BB_lsqlin
-anc = n1.endmembers_Anc_BB_lsqlin
-apar = n1.APAR_spc_photons_lsqlin
-par = n1.PAR_spc_photons
-fluo = n1.FLUO_spc_photons
+wvl = n.raw_data.wvl[0].T
+wvl_400_800 = n.wvl_400_800
+wvl_500_780 = n.wvl_500_780
+wvl_650_850 = n.wvl_650_850
+irr = n.irr_PAR_400_800
+chla = n.endmembers_Chla_BB_lsqlin
+chlb = n.endmembers_Chlb_BB_lsqlin
+carb = n.endmembers_Carb_BB_lsqlin
+anc = n.endmembers_Anc_BB_lsqlin
+apar = n.APAR_spc_photons_lsqlin
+par = n.PAR_spc_photons
+fluo = n.FLUO_spc_photons
 # transpose variables from raw_data and convert from watts to photons
-f_up = to_photons(n1.raw_data.Fup.T)
-f_dw = to_photons(n1.raw_data.Fdw.T)
-trans = n1.raw_data.trans_real.T
-refl = n1.raw_data.refl_real.T
-abs = n1.raw_data.abs_real.T
+f_up = to_photons(n.raw_data.Fup.T)
+f_dw = to_photons(n.raw_data.Fdw.T)
+trans = n.raw_data.trans_real.T
+refl = n.raw_data.refl_real.T
+abs = n.raw_data.abs_real.T
 
 
 # Van Wittenberghe Methodology
@@ -143,14 +151,6 @@ def p(fluo=fluo, apar=apar, par=par, p=(chla+chlb+anc+carb), wvl=np.intersect1d(
     return Result(fluo, f_esc, fluo_corrected, wvl)
 
 
-"""
-vars:
-nitrogen levels (n1, n3, n5)
-days (1..9)
-methods
-"""
-
-
 methods = {
     "Gitelson": gitelson(),
     "Van Wittenberghe": van_wittenberghe(),
@@ -176,7 +176,7 @@ def plot_data():
         for a in range(len(attr)):
             ax[a, i].plot(methods[m].wvl, attr[a][:, days])
         
-    fig.suptitle('n1')
+    fig.suptitle(nitro_label)
     fig.legend(['Day 1', 'Day 9'])
     plt.show()
 
