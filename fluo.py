@@ -35,6 +35,7 @@ def get_wvl_ref(arr):
         case 401: return wvl_400_800
         case 201: return wvl_650_850
         case 281: return wvl_500_780
+        case 131: return np.intersect1d(wvl_500_780, wvl_650_850)
         case _: print("No valid wavelength refernce!")
 
 # get subset of spectrum
@@ -160,7 +161,6 @@ days = [0, -1]
 
 
 def diff(a: Result, b: Result):
-    print(a.corrected)
     corrected =  get_wvl_subset(a.corrected, np.intersect1d(a.wvl,b.wvl)) - get_wvl_subset(b.corrected, np.intersect1d(a.wvl,b.wvl))
     escape = get_wvl_subset(a.escape, np.intersect1d(a.wvl,b.wvl)) - get_wvl_subset(b.escape, np.intersect1d(a.wvl,b.wvl))
     return Result(None, escape, corrected, np.intersect1d(a.wvl, b.wvl))
@@ -185,10 +185,17 @@ def plot_diff():
     p_vanW = diff(p(), van_wittenberghe())
 
     fig, ax = plt.subplots(nrows=2, ncols=2)
-    ax[0, 0].plot(p_gitelson.wvl, p_gitelson.corrected)
-    ax[0, 1].plot(p_vanW.wvl, p_vanW.corrected)
-    ax[1, 0].plot(p_gitelson.wvl, p_gitelson.escape)
-    ax[1, 1].plot(p_vanW.wvl, p_vanW.escape)
+    ax[0, 0].set_title('P - Gitelson Corrected Fluo')
+    ax[0, 0].plot(p_gitelson.wvl, p_gitelson.corrected[:, days])
+
+    ax[0, 1].set_title('P - Van Wittenberghe Corrected Fluo')
+    ax[0, 1].plot(p_vanW.wvl, p_vanW.corrected[:, days])
+
+    ax[1, 0].set_title('P - Gitelson F Escape')
+    ax[1, 0].plot(p_gitelson.wvl, p_gitelson.escape[:, days])
+
+    ax[1, 1].set_title('P - Van Wittenberghe F Escape')
+    ax[1, 1].plot(p_vanW.wvl, p_vanW.escape[:, days])
     fig.suptitle('diff')
     plt.show()
 
@@ -205,9 +212,6 @@ def plot_pigments():
         ax[0, i].plot(wvl_500_780, pigments[i][:, days])
         for a in range(len(attr)):
             ax[a+1, i].plot(res.wvl, attr[a][:, days])
-    
-    """for a in ax.flat:
-        a.set_ylim(0, 1)"""
 
     fig.suptitle('Pigments')
     plt.show()
@@ -215,16 +219,5 @@ def plot_pigments():
 
 
 #plot_data()
-plot_pigments()
-#plot_diff()
-
-
-"""
-ax[1, 0].plot(gitelson_vals[1])
-    ax[1, 1].plot(vw_vals[1])
-    ax[1, 2].plot(p_vals[1])
-
-    ax[2, 0].plot(gitelson_vals[1])
-    ax[2, 1].plot(vw_vals[1])
-    ax[2, 2].plot(p_vals[1])
-"""
+#plot_pigments()
+plot_diff()
