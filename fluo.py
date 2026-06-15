@@ -1,7 +1,7 @@
 import scipy.io
-from pathlib import Path 
 import matplotlib.pyplot as plt
 import numpy as np
+from dataclasses import dataclass
 
 """
 FORMULAS
@@ -30,7 +30,7 @@ def read_file(filename='data/Fluowat_2055_n1_result.mat'):
     elif 'n5' in filename:
         return mat['result'].n5, 'n5'
     else:
-        print('Could not find nitrogen level from filename!')
+        raise ValueError('Could not find nitrogen level from filename!')
 
 # find closest indices (MATLAB min(abs(...))), use same wavelengths for all variables
 def get_wvl_ref(arr):
@@ -40,7 +40,7 @@ def get_wvl_ref(arr):
         case 201: return wvl_650_850
         case 281: return wvl_500_780
         case 131: return np.intersect1d(wvl_500_780, wvl_650_850)
-        case _: print("No valid wavelength refernce!")
+        case _: raise ValueError("No valid wavelength refernce!")
 
 # get subset of spectrum
 def get_wvl_subset(arr, sub):
@@ -65,12 +65,12 @@ def to_photons(var):
     return (1e6/(Na)) * (1e-9/(h*c)) * wl * (var/1000*3.14)
 
 
+@dataclass
 class Result:
-    def __init__(self, fluo, escape, corrected, wvl):
-        self.fluo = fluo
-        self.escape = escape
-        self.corrected = corrected
-        self.wvl = wvl
+    fluo: np.ndarray | None
+    escape: np.ndarray | None
+    corrected: np.ndarray | None
+    wvl: np.ndarray | None
 
 # read data
 n, nitro_label = read_file('data/Fluowat_2055_n3_result.mat')
@@ -105,10 +105,10 @@ def van_wittenberghe(f_up=f_up, f_dw=f_dw, refl=refl, trans=trans, wvl=wvl_650_8
     refl = get_wvl_subset(refl, wvl)
     trans = get_wvl_subset(trans, wvl)
 
-    F_ps = np.add(np.divide(f_up, refl), np.divide(f_dw, trans))
-    f_total = np.add(f_up, f_dw)
-    f_esc = np.sqrt(np.divide(f_total, F_ps))
-    fluo_corrected = np.divide(f_total, f_esc)
+    F_ps = (f_up / refl) + (f_dw / trans)
+    f_total = f_up + f_dw
+    f_esc = np.sqrt((f_total / F_ps))
+    fluo_corrected = f_total / f_esc
     return Result(fluo, f_esc, fluo_corrected, wvl)
 
 # Gitelson Methodology
@@ -117,8 +117,8 @@ def gitelson(fluo=fluo, trans=trans, refl=refl, wvl=wvl_650_850):
     trans = get_wvl_subset(trans, wvl)
     refl = get_wvl_subset(refl, wvl)
 
-    fluo_corrected = np.divide(fluo, np.add(trans, refl))
-    f_esc = np.divide(fluo, fluo_corrected)
+    fluo_corrected = fluo / (trans + refl)
+    f_esc = fluo / fluo_corrected
     return Result(fluo, f_esc, fluo_corrected, wvl)
 
 # P Methodology
@@ -132,7 +132,7 @@ def p(fluo=fluo, apar=apar, par=par, p=(chla+chlb+anc+carb), wvl=np.intersect1d(
     eps = 1e-1  # avoid division by zero
     
 
-    norm = np.divide(apar, a)
+    norm = apar / a
 
     # correction factor: fraction of excitation NOT lost
     escape_fraction = 1 - norm
@@ -161,23 +161,24 @@ days = [0, -1]
 
 
 def diff(a: Result, b: Result):
-    corrected =  get_wvl_subset(a.corrected, np.intersect1d(a.wvl,b.wvl)) - get_wvl_subset(b.corrected, np.intersect1d(a.wvl,b.wvl))
-    escape = get_wvl_subset(a.escape, np.intersect1d(a.wvl,b.wvl)) - get_wvl_subset(b.escape, np.intersect1d(a.wvl,b.wvl))
+    common_wvl = np.intersect1d(a.wvl, b.wvl)
+    corrected =  get_wvl_subset(a.corrected, common_wvl) - get_wvl_subset(b.corrected, common_wvl)
+    escape = get_wvl_subset(a.escape, common_wvl) - get_wvl_subset(b.escape, common_wvl)
     return Result(None, escape, corrected, np.intersect1d(a.wvl, b.wvl))
 
 
 def plot_data():
     fig, ax = plt.subplots(nrows=3, ncols=3, sharex='all', sharey='row')
     keys = list(methods.keys())
-    for i in range(len(keys)):
-        m = keys[i]
-        ax[0, i].set_title(m)
-        attr = [methods[m].fluo, methods[m].corrected, methods[m].escape]
+    for i, k in enumerate(keys):
+        ax[0, i].set_title(k)
+        attr = [methods[k].fluo, methods[k].corrected, methods[k].escape]
         for a in range(len(attr)):
-            ax[a, i].plot(methods[m].wvl, attr[a][:, days])
+            ax[a, i].plot(methods[k].wvl, attr[a][:, days])
         
     fig.suptitle(nitro_label)
     fig.legend(['Day 1', 'Day 9'])
+    fig.tight_layout()
     plt.show()
 
 
@@ -199,24 +200,26 @@ def plot_diff():
     ax[1, 1].plot(p_vanW.wvl, p_vanW.escape[:, days])
     fig.suptitle('diff')
     fig.legend(['Day 1', 'Day 9'])
+    fig.tight_layout()
     plt.show()
 
 
 def plot_pigments():
     total = chla+chlb+anc+carb
     pigments = [chla, chlb, anc, carb, total]
-    names = ['ChlA', 'ChlaB', 'Anc', 'Carb', 'Sum']
+    names = ['ChlA', 'ChlB', 'Anc', 'Carb', 'Sum']
     fig, ax = plt.subplots(nrows=3, ncols=5, sharex='col', sharey='all')
-    for i in range(len(pigments)):
-        res = p(p=pigments[i])
-        attr = [res.corrected, res.escape]
+    for i, pigment in enumerate(pigments):
+        res = p(p=pigment)
+        attributes = [res.corrected, res.escape]
         ax[0, i].set_title(names[i])
-        ax[0, i].plot(wvl_500_780, pigments[i][:, days])
-        for a in range(len(attr)):
-            ax[a+1, i].plot(res.wvl, attr[a][:, days])
+        ax[0, i].plot(wvl_500_780, pigment[:, days])
+        for a, attr in enumerate(attributes):
+            ax[a+1, i].plot(res.wvl, attr[:, days])
 
     fig.suptitle('Pigments')
     fig.legend(['Day 1', 'Day 9'])
+    fig.tight_layout()
     plt.show()
 
 
