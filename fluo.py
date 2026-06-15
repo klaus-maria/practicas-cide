@@ -4,13 +4,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 """
-TODO:
-- check values van wittenberghe
-- check if gitelson 0.4 corrected is expected
-- impl plots
-"""
-
-"""
 FORMULAS
 
 https://www.sciencedirect.com/science/article/pii/S0034425724003122
@@ -28,21 +21,14 @@ R -> Reflectance
 
 # read data
 mat = scipy.io.loadmat('data/Fluowat_2055_n1_result.mat', struct_as_record=False, squeeze_me=True)
-
 n1 = mat['result'].n1
+
+print(list(vars(mat['result']).keys()))
 print(list(vars(n1).keys()))
 print(list(vars(n1.raw_data).keys()))
 
 
-print("fluo ", n1.FLUO_spc_photons.shape)
-print("wvl_400_800", n1.wvl_400_800.shape)
-print("wvl_500_780", n1.wvl_500_780.shape)
-print("wvl_650_850", n1.wvl_650_850.shape)
-print(n1.wvl_650_850[0], n1.wvl_650_850[-1])
-
 # find closest indices (MATLAB min(abs(...))), use same wavelengths for all variables
-wvl = n1.raw_data.wvl[0].T
-
 def get_wvl_ref(arr):
     match len(arr):
         case 2151: return wvl
@@ -51,6 +37,7 @@ def get_wvl_ref(arr):
         case 281: return wvl_500_780
         case _: print("No valid wavelength refernce!")
 
+# get subset of spectrum
 def get_wvl_subset(arr, sub):
     ref = get_wvl_ref(arr)
     pos1A = np.argmin(np.abs(ref - sub[0]))
@@ -72,7 +59,17 @@ def to_photons(var):
     var = np.asarray(var)
     return (1e6/(Na)) * (1e-9/(h*c)) * wl * (var/1000*3.14)
 
+
+class Result:
+    def __init__(self, fluo, escape, corrected, wvl):
+        self.fluo = fluo
+        self.escape = escape
+        self.corrected = corrected
+        self.wvl = wvl
+
+
 # get variables
+wvl = n1.raw_data.wvl[0].T
 wvl_400_800 = n1.wvl_400_800
 wvl_500_780 = n1.wvl_500_780
 wvl_650_850 = n1.wvl_650_850
@@ -92,27 +89,8 @@ refl = n1.raw_data.refl_real.T
 abs = n1.raw_data.abs_real.T
 
 
-# check data
-print("--- Dimensions of data ---")
-print("wvl: ", len(wvl))
-print("irr: ", len(irr), len(irr[1]))
-print("fluo: ", len(fluo), len(fluo[1]))
-print("f_up: ", len(f_up), len(f_up[1]))
-print("f_dw: ", len(f_dw), len(f_dw[1]))
-print("apar: ", len(apar), len(apar[1]))
-print("par: ", len(par), len(par[1]))
-print("chla: ", len(chla), len(chla[1]))
-print("chlb: ", len(chlb), len(chlb[1]))
-print("carb: ", len(carb), len(carb[1]))
-print("anc: ", len(anc), len(anc[1]))
-print("trans: ", len(trans), len(trans[1]))
-print("refl: ", len(refl), len(refl[1]))
-
-
-
-
 # Van Wittenberghe Methodology
-def van_wittenberghe(f_up, f_dw, refl, trans, wvl):
+def van_wittenberghe(f_up=f_up, f_dw=f_dw, refl=refl, trans=trans, wvl=wvl_650_850):
     f_up = get_wvl_subset(f_up, wvl)
     f_dw = get_wvl_subset(f_dw, wvl)
     refl = get_wvl_subset(refl, wvl)
@@ -122,36 +100,131 @@ def van_wittenberghe(f_up, f_dw, refl, trans, wvl):
     f_total = np.add(f_up, f_dw)
     f_esc = np.sqrt(np.divide(f_total, F_ps))
     fluo_corrected = np.divide(f_total, f_esc)
-    return (f_total, fluo_corrected, f_esc)
-
+    return Result(fluo, f_esc, fluo_corrected, wvl)
 
 # Gitelson Methodology
-def gitelson(fluo, trans, refl, wvl):
+def gitelson(fluo=fluo, trans=trans, refl=refl, wvl=wvl_650_850):
     fluo = get_wvl_subset(fluo, wvl)
     trans = get_wvl_subset(trans, wvl)
     refl = get_wvl_subset(refl, wvl)
 
     fluo_corrected = np.divide(fluo, np.add(trans, refl))
     f_esc = np.divide(fluo, fluo_corrected)
-    return (fluo, fluo_corrected, f_esc)
-
+    return Result(fluo, f_esc, fluo_corrected, wvl)
 
 # P Methodology
-def p(fluo, apar, a, wvl):
+def p(fluo=fluo, apar=apar, par=par, p=(chla+chlb+anc+carb), wvl=np.intersect1d(wvl_500_780, wvl_650_850)):
     fluo = get_wvl_subset(fluo, wvl)
     apar = get_wvl_subset(apar, wvl)
-    a = get_wvl_subset(a, wvl)
+    abs_p = get_wvl_subset(par, wvl_500_780) * p
+    a = get_wvl_subset(abs_p, wvl)
+
+
+    eps = 1e-1  # avoid division by zero
+    
 
     norm = np.divide(apar, a)
-    fluo_corrected = np.divide(fluo, np.subtract(1, norm))
-    f_esc = np.divide(fluo, fluo_corrected)
-    return (fluo, fluo_corrected, f_esc)
+
+    # correction factor: fraction of excitation NOT lost
+    escape_fraction = 1 - norm
+
+    # avoid blow-ups
+    escape_fraction = np.clip(escape_fraction, eps, 1)
+
+    # corrected fluorescence
+    fluo_corrected = fluo / escape_fraction
+
+    # escape ratio (optional)
+    f_esc = fluo / fluo_corrected
+
+    #fluo_corrected = np.divide(fluo, np.subtract(1, norm))
+    #f_esc = np.divide(fluo, fluo_corrected)
+    return Result(fluo, f_esc, fluo_corrected, wvl)
 
 
-#gitelson(fluo, trans, refl, wvl_650_850)
+"""
+vars:
+nitrogen levels (n1, n3, n5)
+days (1..9)
+methods
+"""
 
 
-#van_wittenberghe(f_up, f_dw, refl, trans, wvl_650_850)
+methods = {
+    "Gitelson": gitelson(),
+    "Van Wittenberghe": van_wittenberghe(),
+    "P": p()
+}
 
-abs_p = get_wvl_subset(par, wvl_500_780) * (chla + chlb + carb + anc)
-p(fluo, apar, abs_p, np.intersect1d(wvl_500_780, wvl_650_850))
+days = [0, -1]
+
+
+def diff(a: Result, b: Result):
+    print(a.corrected)
+    corrected =  get_wvl_subset(a.corrected, np.intersect1d(a.wvl,b.wvl)) - get_wvl_subset(b.corrected, np.intersect1d(a.wvl,b.wvl))
+    escape = get_wvl_subset(a.escape, np.intersect1d(a.wvl,b.wvl)) - get_wvl_subset(b.escape, np.intersect1d(a.wvl,b.wvl))
+    return Result(None, escape, corrected, np.intersect1d(a.wvl, b.wvl))
+
+
+def plot_data():
+    fig, ax = plt.subplots(nrows=3, ncols=3, sharex='all', sharey='row')
+    keys = list(methods.keys())
+    for i in range(len(keys)):
+        m = keys[i]
+        ax[0, i].set_title(m)
+        attr = [methods[m].fluo, methods[m].corrected, methods[m].escape]
+        for a in range(len(attr)):
+            ax[a, i].plot(methods[m].wvl, attr[a][:, days])
+        
+    fig.suptitle('n1')
+    plt.show()
+
+
+def plot_diff():
+    p_gitelson = diff(p(), gitelson())
+    p_vanW = diff(p(), van_wittenberghe())
+
+    fig, ax = plt.subplots(nrows=2, ncols=2)
+    ax[0, 0].plot(p_gitelson.wvl, p_gitelson.corrected)
+    ax[0, 1].plot(p_vanW.wvl, p_vanW.corrected)
+    ax[1, 0].plot(p_gitelson.wvl, p_gitelson.escape)
+    ax[1, 1].plot(p_vanW.wvl, p_vanW.escape)
+    fig.suptitle('diff')
+    plt.show()
+
+
+def plot_pigments():
+    total = chla+chlb+anc+carb
+    pigments = [chla, chlb, anc, carb, total]
+    names = ['ChlA', 'ChlaB', 'Anc', 'Carb', 'Sum']
+    fig, ax = plt.subplots(nrows=3, ncols=5, sharex='col', sharey='all')
+    for i in range(len(pigments)):
+        res = p(p=pigments[i])
+        attr = [res.corrected, res.escape]
+        ax[0, i].set_title(names[i])
+        ax[0, i].plot(wvl_500_780, pigments[i][:, days])
+        for a in range(len(attr)):
+            ax[a+1, i].plot(res.wvl, attr[a][:, days])
+    
+    """for a in ax.flat:
+        a.set_ylim(0, 1)"""
+
+    fig.suptitle('Pigments')
+    plt.show()
+
+
+
+#plot_data()
+plot_pigments()
+#plot_diff()
+
+
+"""
+ax[1, 0].plot(gitelson_vals[1])
+    ax[1, 1].plot(vw_vals[1])
+    ax[1, 2].plot(p_vals[1])
+
+    ax[2, 0].plot(gitelson_vals[1])
+    ax[2, 1].plot(vw_vals[1])
+    ax[2, 2].plot(p_vals[1])
+"""
