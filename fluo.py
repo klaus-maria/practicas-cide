@@ -177,12 +177,13 @@ def plot_data():
             ax[a, i].plot(methods[m].wvl, attr[a][:, days])
         
     fig.suptitle('n1')
+    fig.legend(['Day 1', 'Day 9'])
     plt.show()
 
 
 def plot_diff():
-    p_gitelson = diff(p(), gitelson())
-    p_vanW = diff(p(), van_wittenberghe())
+    p_gitelson = diff(methods['P'], methods['Gitelson'])
+    p_vanW = diff(methods['P'], methods['Van Wittenberghe'])
 
     fig, ax = plt.subplots(nrows=2, ncols=2)
     ax[0, 0].set_title('P - Gitelson Corrected Fluo')
@@ -197,6 +198,7 @@ def plot_diff():
     ax[1, 1].set_title('P - Van Wittenberghe F Escape')
     ax[1, 1].plot(p_vanW.wvl, p_vanW.escape[:, days])
     fig.suptitle('diff')
+    fig.legend(['Day 1', 'Day 9'])
     plt.show()
 
 
@@ -214,10 +216,11 @@ def plot_pigments():
             ax[a+1, i].plot(res.wvl, attr[a][:, days])
 
     fig.suptitle('Pigments')
+    fig.legend(['Day 1', 'Day 9'])
     plt.show()
 
 
 
-#plot_data()
-#plot_pigments()
+plot_data()
+plot_pigments()
 plot_diff()
