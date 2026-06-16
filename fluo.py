@@ -2,19 +2,21 @@ import scipy.io
 import matplotlib.pyplot as plt
 import numpy as np
 from dataclasses import dataclass
+import sys
 
 """
-FORMULAS
+REFERNCES
 
+Van Wittenberghe
 https://www.sciencedirect.com/science/article/pii/S0034425724003122
 
-SIF -> sun induced chlorophyll fluorescence
-F -> Fluorescence emission
-APAR -> absorbed photosynthetically active radiation
-ΦF -> quantum yield of fluorescence (photosystem level)
-f_esc -> escape probability of photons (not absorbed/scattered)
-λ -> wavelength
-R -> Reflectance
+Gitelson
+https://www.sciencedirect.com/science/article/pii/S0273117797011332
+"""
+
+"""
+TODO:
+- make days plotted variable
 """
 
 @dataclass
@@ -26,8 +28,11 @@ class Result:
 
 
 class Fluo():
-    
-    def __init__(self, filename):
+    """
+    Create a Fluo object. Reads file, retrieves attributes, computes methodologies.
+    :param filename: Filepath to .mat file containing data.
+    """
+    def __init__(self, filename: str):
         self.n, self.n_label = self.read_file(filename)
         print(list(vars(self.n).keys()))
         print(list(vars(self.n.raw_data).keys()))
@@ -77,21 +82,28 @@ class Fluo():
 
         self.days = [0, -1]
 
-    # read file and determine nitrogen level
-    def read_file(self, filename):
+    """
+    Read .mat file, expects a matlab structure with the structure [result].[nitrogen_level].
+    Returns matlab structure object and filename.
+    :param: filename: Filepath to .mat file.
+    """
+    def read_file(self, filename: str) -> list[object, str]:
         mat = scipy.io.loadmat(filename, struct_as_record=False, squeeze_me=True)
         print(list(vars(mat['result']).keys()))
         if 'n1' in filename:
-            return mat['result'].n1, 'n1'
+            return mat['result'].n1, filename
         elif 'n3' in filename:
-            return mat['result'].n3, 'n3'
+            return mat['result'].n3, filename
         elif 'n5' in filename:
-            return mat['result'].n5, 'n5'
+            return mat['result'].n5, filename
         else:
             raise ValueError('Could not find nitrogen level from filename!')
 
-    # find closest indices (MATLAB min(abs(...))), use same wavelengths for all variables
-    def get_wvl_ref(self, arr):
+    """
+    Get the wavelength spectrum of a dataset based on its length.
+    :param arr: 
+    """
+    def get_wvl_ref(self, arr: np.array) -> np.array:
         match len(arr):
             case 2151: return self.wvl
             case 401: return self.wvl_400_800
@@ -100,16 +112,23 @@ class Fluo():
             case 131: return np.intersect1d(self.wvl_500_780, self.wvl_650_850)
             case _: raise ValueError("No valid wavelength refernce!")
 
-    # get subset of spectrum
-    def get_wvl_subset(self, arr, sub):
+    """
+    Get wvelength spectrum subset of a dataset. Returns input array in given wavelength subset.
+    :param arr: input array.
+    :param sub: wavelength subset.
+    """
+    def get_wvl_subset(self, arr: np.array, sub: np.array) -> np.array:
         ref = self.get_wvl_ref(arr)
         pos1A = np.argmin(np.abs(ref - sub[0]))
         pos2A = np.argmin(np.abs(ref - sub[-1]))
         arr = np.asarray(arr).squeeze()
         return arr[pos1A:pos2A+1]
 
-    # convert variables in watts from raw_data to photons
-    def to_photons(self, var):
+    """
+    Convert array from electronic counts to photons.
+    :param var: input array.
+    """
+    def to_photons(self, var: np.array) -> np.array:
         wvl = self.get_wvl_ref(var)
         # ######## FLUORESCENCE ################
         # Conversion of FLUO to micromol photons m-2 s-1
@@ -122,21 +141,33 @@ class Fluo():
         var = np.asarray(var)
         return (1e6/(Na)) * (1e-9/(h*c)) * wl * (var/1000*3.14)
 
-    # Van Wittenberghe Methodology
-    def van_wittenberghe(self, f_up, f_dw, refl, trans, wvl):
+    """
+    Van Wittenberghe Methodology
+    :param f_up: upwards fluorescence.
+    :param f_dw: downwards fluorescence.
+    :param refl: reflectance.
+    :param trans: transmittance.
+    :param wvl: wavelength spectrum to use.
+    """
+    def van_wittenberghe(self, f_up: np.array, f_dw: np.array, refl: np.array, trans: np.array, wvl: np.array) -> Result:
         f_up = self.get_wvl_subset(f_up, wvl)
         f_dw = self.get_wvl_subset(f_dw, wvl)
         refl = self.get_wvl_subset(refl, wvl)
         trans = self.get_wvl_subset(trans, wvl)
 
-        F_ps = (f_up / refl) + (f_dw / trans)
+        fluo_corrected = (f_up / refl) + (f_dw / trans)
         f_total = f_up + f_dw
-        f_esc = np.sqrt((f_total / F_ps))
-        fluo_corrected = f_total / f_esc
+        f_esc = f_total / fluo_corrected
         return Result(self.fluo, f_esc, fluo_corrected, wvl)
 
-    # Gitelson Methodology
-    def gitelson(self, fluo, trans, refl, wvl):
+    """
+    Gitelson Methodology
+    :param fluo: measured fluorescence.
+    :param trans: trasnmittance.
+    :param refl: reflectance.
+    :param wvl: wavelength spectrum to use.
+    """
+    def gitelson(self, fluo: np.array, trans: np.array, refl: np.array, wvl: np.array) -> Result:
         fluo = self.get_wvl_subset(fluo, wvl)
         trans = self.get_wvl_subset(trans, wvl)
         refl = self.get_wvl_subset(refl, wvl)
@@ -145,41 +176,41 @@ class Fluo():
         f_esc = fluo / fluo_corrected
         return Result(fluo, f_esc, fluo_corrected, wvl)
 
-    # P Methodology
-    def p(self, fluo, apar, par, p, wvl):
+    """
+    MaPi Methodology
+    :param fluo: measured fluorescence.
+    :param apar: total absorption.
+    :param par: irradiance.
+    :param p: pigment(s).
+    :param wvl: wavelength spectrum to use.
+    """
+    def p(self, fluo: np.array, apar: np.array, par: np.array, p: np.array, wvl: np.array) -> Result:
         fluo = self.get_wvl_subset(fluo, wvl)
         apar = self.get_wvl_subset(apar, wvl)
-        abs_p = self.get_wvl_subset(par, self.wvl_500_780) * p
-        a = self.get_wvl_subset(abs_p, wvl)
+        apar_pigment = self.get_wvl_subset(par, self.wvl_500_780) * p
+        apar_pigment = self.get_wvl_subset(apar_pigment, wvl)
 
-
-        eps = 1e-1  # avoid division by zero
-        
-
-        norm = apar / a
-
-        # correction factor: fraction of excitation NOT lost
-        escape_fraction = 1 - norm
-
-        # avoid blow-ups
-        escape_fraction = np.clip(escape_fraction, eps, 1)
-
-        # corrected fluorescence
-        fluo_corrected = fluo / escape_fraction
-
-        # escape ratio (optional)
+        norm = apar_pigment / self.get_wvl_subset(par, wvl)
+        rt = 1 - norm
+        fluo_corrected = fluo / rt
         f_esc = fluo / fluo_corrected
-
-        #fluo_corrected = np.divide(fluo, np.subtract(1, norm))
-        #f_esc = np.divide(fluo, fluo_corrected)
         return Result(fluo, f_esc, fluo_corrected, wvl)
     
-    def diff(self, a: Result, b: Result):
+    """
+    Get difference of corrected fluorescence and f_escape between 2 computed results.
+    Returns new result with differences.
+    :param a: first result.
+    :param b: second result.
+    """
+    def diff(self, a: Result, b: Result) -> Result:
         common_wvl = np.intersect1d(a.wvl, b.wvl)
         corrected =  self.get_wvl_subset(a.corrected, common_wvl) - self.get_wvl_subset(b.corrected, common_wvl)
         escape = self.get_wvl_subset(a.escape, common_wvl) - self.get_wvl_subset(b.escape, common_wvl)
         return Result(None, escape, corrected, np.intersect1d(a.wvl, b.wvl))
 
+    """
+    Plot input fluorescence, corrected fluorescence and f escape for each methodology.
+    """
     def plot_data(self):
         fig, ax = plt.subplots(nrows=3, ncols=3, sharex='all', sharey='row')
         keys = list(self.methods.keys())
@@ -194,11 +225,14 @@ class Fluo():
         fig.tight_layout()
         plt.show()
 
+    """
+    Plot result differences of MaPi methodology to Gitelson and Van Wittenberghe.
+    """
     def plot_diff(self):
         p_gitelson = self.diff(self.methods['P'], self.methods['Gitelson'])
         p_vanW = self.diff(self.methods['P'], self.methods['Van Wittenberghe'])
 
-        fig, ax = plt.subplots(nrows=2, ncols=2)
+        fig, ax = plt.subplots(nrows=2, ncols=2, sharey='row')
         ax[0, 0].set_title('P - Gitelson Corrected Fluo')
         ax[0, 0].plot(p_gitelson.wvl, p_gitelson.corrected[:, self.days])
 
@@ -215,11 +249,14 @@ class Fluo():
         fig.tight_layout()
         plt.show()
 
+    """
+    Plot MaPi methodology fluorescence correction of each pigment seperately (its contribution) and pigments sum.
+    """
     def plot_pigments(self):
         total = self.chla+self.chlb+self.anc+self.carb
         pigments = [self.chla, self.chlb, self.anc, self.carb, total]
         names = ['ChlA', 'ChlB', 'Anc', 'Carb', 'Sum']
-        fig, ax = plt.subplots(nrows=3, ncols=5, sharex='col', sharey='all')
+        fig, ax = plt.subplots(nrows=3, ncols=5, sharex='col', sharey='row')
         for i, pigment in enumerate(pigments):
             res = self.p(
                 fluo=self.fluo,
@@ -233,6 +270,8 @@ class Fluo():
             ax[0, i].plot(self.wvl_500_780, pigment[:, self.days])
             for a, attr in enumerate(attributes):
                 ax[a+1, i].plot(res.wvl, attr[:, self.days])
+                #ax[a+1, i].set_ylim(0,1)
+
 
         fig.suptitle('Pigments')
         fig.legend(['Day 1', 'Day 9'])
@@ -240,9 +279,19 @@ class Fluo():
         plt.show()
 
 
+
+# get file to analyze
+if len(sys.argv) < 2:
+    print("Invalid filename provided! Using default file.")
+    filename = "data/Fluowat_2055_n3_result.mat"
+    #raise ValueError("No file provided!")
+else:
+    filename = sys.argv[1]
+
 # create Fluo analysis
-n3 = Fluo('data/Fluowat_2055_n3_result.mat')
+analysis = Fluo(filename)
+
 # plot analysis, pigments and differences
-n3.plot_data()
-n3.plot_pigments()
-n3.plot_diff()
+analysis.plot_data()
+analysis.plot_pigments()
+analysis.plot_diff()
