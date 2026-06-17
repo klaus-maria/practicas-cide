@@ -16,7 +16,7 @@ https://www.sciencedirect.com/science/article/pii/S0273117797011332
 
 """
 TODO:
-- make days plotted variable
+- y axis label
 """
 
 @dataclass
@@ -80,7 +80,6 @@ class Fluo():
             )
         }
 
-        self.days = [0, -1]
 
     """
     Read .mat file, expects a matlab structure with the structure [result].[nitrogen_level].
@@ -211,48 +210,52 @@ class Fluo():
     """
     Plot input fluorescence, corrected fluorescence and f escape for each methodology.
     """
-    def plot_data(self):
+    def plot_data(self, startday: int, endday: int):
         fig, ax = plt.subplots(nrows=3, ncols=3, sharex='all', sharey='row')
         keys = list(self.methods.keys())
         for i, k in enumerate(keys):
             ax[0, i].set_title(k)
             attr = [self.methods[k].fluo, self.methods[k].corrected, self.methods[k].escape]
             for a in range(len(attr)):
-                ax[a, i].plot(self.methods[k].wvl, attr[a][:, self.days])
+                ax[a, i].plot(self.methods[k].wvl, attr[a][:, [startday, endday]])
             
         fig.suptitle(self.n_label)
-        fig.legend(['Day 1', 'Day 9'])
+        start_label = 'Day ' + str(startday)
+        endday_label = 'Day ' + str(endday)
+        fig.legend([start_label, endday_label])
         fig.tight_layout()
         plt.show()
 
     """
     Plot result differences of MaPi methodology to Gitelson and Van Wittenberghe.
     """
-    def plot_diff(self):
+    def plot_diff(self, startday: int, endday: int):
         p_gitelson = self.diff(self.methods['P'], self.methods['Gitelson'])
         p_vanW = self.diff(self.methods['P'], self.methods['Van Wittenberghe'])
 
         fig, ax = plt.subplots(nrows=2, ncols=2, sharey='row')
         ax[0, 0].set_title('P - Gitelson Corrected Fluo')
-        ax[0, 0].plot(p_gitelson.wvl, p_gitelson.corrected[:, self.days])
+        ax[0, 0].plot(p_gitelson.wvl, p_gitelson.corrected[:, [startday, endday]])
 
         ax[0, 1].set_title('P - Van Wittenberghe Corrected Fluo')
-        ax[0, 1].plot(p_vanW.wvl, p_vanW.corrected[:, self.days])
+        ax[0, 1].plot(p_vanW.wvl, p_vanW.corrected[:, [startday, endday]])
 
         ax[1, 0].set_title('P - Gitelson F Escape')
-        ax[1, 0].plot(p_gitelson.wvl, p_gitelson.escape[:, self.days])
+        ax[1, 0].plot(p_gitelson.wvl, p_gitelson.escape[:, [startday, endday]])
 
         ax[1, 1].set_title('P - Van Wittenberghe F Escape')
-        ax[1, 1].plot(p_vanW.wvl, p_vanW.escape[:, self.days])
-        fig.suptitle('diff')
-        fig.legend(['Day 1', 'Day 9'])
+        ax[1, 1].plot(p_vanW.wvl, p_vanW.escape[:, [startday, endday]])
+        fig.suptitle('Differences Methodologies '+self.n_label)
+        start_label = 'Day ' + str(startday)
+        endday_label = 'Day ' + str(endday)
+        fig.legend([start_label, endday_label])
         fig.tight_layout()
         plt.show()
 
     """
     Plot MaPi methodology fluorescence correction of each pigment seperately (its contribution) and pigments sum.
     """
-    def plot_pigments(self):
+    def plot_pigments(self, startday: int, endday: int):
         total = self.chla+self.chlb+self.anc+self.carb
         pigments = [self.chla, self.chlb, self.anc, self.carb, total]
         names = ['ChlA', 'ChlB', 'Anc', 'Carb', 'Sum']
@@ -267,20 +270,22 @@ class Fluo():
                 )
             attributes = [res.corrected, res.escape]
             ax[0, i].set_title(names[i])
-            ax[0, i].plot(self.wvl_500_780, pigment[:, self.days])
+            ax[0, i].plot(self.wvl_500_780, pigment[:, [startday, endday]])
             for a, attr in enumerate(attributes):
-                ax[a+1, i].plot(res.wvl, attr[:, self.days])
+                ax[a+1, i].plot(res.wvl, attr[:, [startday, endday]])
                 #ax[a+1, i].set_ylim(0,1)
 
 
-        fig.suptitle('Pigments')
-        fig.legend(['Day 1', 'Day 9'])
+        fig.suptitle('Pigments MaPi Methodology '+self.n_label)
+        start_label = 'Day ' + str(startday)
+        endday_label = 'Day ' + str(endday)
+        fig.legend([start_label, endday_label])
         fig.tight_layout()
         plt.show()
 
 
 
-# get file to analyze
+# get arguments
 if len(sys.argv) < 2:
     print("Invalid filename provided! Using default file.")
     filename = "data/Fluowat_2055_n3_result.mat"
@@ -288,10 +293,19 @@ if len(sys.argv) < 2:
 else:
     filename = sys.argv[1]
 
+if len(sys.argv) >= 3:
+    startday = int(sys.argv[2])
+
+    if len(sys.argv) >= 4:
+        endday = int(sys.argv[3])
+    else:
+        endday = startday
+
+
 # create Fluo analysis
 analysis = Fluo(filename)
 
 # plot analysis, pigments and differences
-analysis.plot_data()
-analysis.plot_pigments()
-analysis.plot_diff()
+analysis.plot_data(startday=startday, endday=endday)
+analysis.plot_pigments(startday=startday, endday=endday)
+analysis.plot_diff(startday=startday, endday=endday)
