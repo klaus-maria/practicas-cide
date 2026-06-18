@@ -300,6 +300,9 @@ if len(sys.argv) >= 3:
         endday = int(sys.argv[3])
     else:
         endday = startday
+else:
+    startday = 0
+    endday = -1
 
 
 # create Fluo analysis
